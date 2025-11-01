@@ -1,6 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
-import type { Message, ClosetItem } from '../types';
+import type { Message, ClosetItem, GeneratedOutfit } from '../types';
 import { AURA_SYSTEM_PROMPT } from '../constants';
 
 const MODEL_NAME = 'gemini-2.5-flash';
@@ -11,23 +11,16 @@ if (!process.env.API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = (error) => reject(error);
-  });
-};
-
 export const getAuraResponse = async (
   userMessage: Message,
   chatHistory: Message[],
   closet: ClosetItem[]
-): Promise<string> => {
+): Promise<string | GeneratedOutfit> => {
   try {
-    const closetContents = closet.map(item => `- ${item.name}`).join('\n');
-    const historyContext = chatHistory.map(msg => `${msg.sender === 'user' ? 'User' : 'Aura'}: ${msg.text}`).join('\n');
+    const closetContents = closet.map(item => `- ${item.name} (${item.category})`).join('\n');
+    const historyContext = chatHistory
+      .map(msg => `${msg.sender === 'user' ? 'User' : 'Aura'}: ${msg.outfit ? '[Aura sent an outfit]' : msg.text}`)
+      .join('\n');
 
     const fullPrompt = `
 ${AURA_SYSTEM_PROMPT}
@@ -42,6 +35,8 @@ ${historyContext}
 User: ${userMessage.text}
 Aura:
 `;
+    
+    let responseText: string;
     
     if (userMessage.image) {
       const imagePart = {
@@ -58,14 +53,30 @@ Aura:
         model: MODEL_NAME,
         contents: { parts: [imagePart, textPart] },
       });
-      return response.text;
+      responseText = response.text;
     } else {
       const response = await ai.models.generateContent({
         model: MODEL_NAME,
         contents: fullPrompt
       });
-      return response.text;
+      responseText = response.text;
     }
+
+    // Attempt to parse the response as JSON
+    try {
+      // Sometimes the model wraps the JSON in ```json ... ```
+      const cleanedText = responseText.replace(/```json|```/g, '').trim();
+      const jsonData = JSON.parse(cleanedText);
+      // Basic validation to see if it's the structure we expect
+      if (jsonData.outfitName && jsonData.items && jsonData.introText) {
+        return jsonData as GeneratedOutfit;
+      }
+    } catch (e) {
+      // It's not valid JSON, or not the format we expect. Treat as regular text.
+    }
+
+    return responseText;
+
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     return "I'm having a little trouble thinking right now. Please try again in a moment.";
