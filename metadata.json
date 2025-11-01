@@ -1,0 +1,7 @@
+{
+  "name": "Aura: AI Personal Stylist",
+  "description": "An AI-powered personal stylist named Aura who helps users create outfits, offers style advice, and analyzes clothing images from their virtual closet.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
